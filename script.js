@@ -783,9 +783,9 @@ async function doUpload() {
   progressWrap.classList.remove('hidden');
   uploadBtn.disabled = true;
 
-  // Upload semua file satu per satu
-  let totalSize = 0;
+  let totalSize    = 0;
   const uploadedFiles = [];
+  let storageWorking  = true;
 
   for (let i = 0; i < stagedFiles.length; i++) {
     const file = stagedFiles[i];
@@ -793,37 +793,59 @@ async function doUpload() {
 
     progressFn.textContent   = file.name;
     progressStat.textContent = `Uploading file ${i + 1} of ${stagedFiles.length}...`;
+    progressBar.style.width  = '5%';
+    progressPct.textContent  = '5%';
 
-    try {
-      // Simpan ke Firebase Storage
-      const storagePath = `projects/${currentUser.uid}/${Date.now()}_${file.name}`;
-      const storageRef  = storage.ref(storagePath);
-      const uploadTask  = storageRef.put(file);
+    if (storageWorking) {
+      try {
+        const storagePath = `projects/${currentUser.uid}/${Date.now()}_${file.name}`;
+        const storageRef  = storage.ref(storagePath);
+        const uploadTask  = storageRef.put(file);
 
-      await new Promise((resolve, reject) => {
-        uploadTask.on('state_changed',
-          snap => {
-            const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
-            progressBar.style.width = `${pct}%`;
-            progressPct.textContent = `${pct}%`;
-          },
-          reject,
-          async () => {
-            const downloadURL = await uploadTask.snapshot.ref.getDownloadURL();
-            uploadedFiles.push({ name: file.name, url: downloadURL, storagePath, size: file.size });
-            resolve();
-          }
-        );
-      });
+        await new Promise((resolve, reject) => {
+          // Timeout 30 detik — kalau Storage belum aktif, langsung fallback
+          const timeout = setTimeout(() => {
+            uploadTask.cancel();
+            reject(new Error('storage/timeout'));
+          }, 30000);
 
-    } catch (e) {
-      // Jika Storage belum dikonfigurasi, simpan tanpa file (demo mode)
-      console.warn('Storage upload failed, saving metadata only:', e.message);
+          uploadTask.on('state_changed',
+            snap => {
+              const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
+              progressBar.style.width = `${Math.max(pct, 5)}%`;
+              progressPct.textContent = `${pct}%`;
+            },
+            err => { clearTimeout(timeout); reject(err); },
+            async () => {
+              clearTimeout(timeout);
+              try {
+                const downloadURL = await uploadTask.snapshot.ref.getDownloadURL();
+                uploadedFiles.push({ name: file.name, url: downloadURL, storagePath, size: file.size });
+                resolve();
+              } catch(urlErr) { reject(urlErr); }
+            }
+          );
+        });
+
+      } catch (e) {
+        storageWorking = false;
+        const code = e.code || e.message || '';
+        let errMsg = 'Firebase Storage belum diaktifkan!';
+        if (code.includes('unauthorized') || code.includes('permission'))
+          errMsg = 'Storage Rules belum diset. Aktifkan test mode!';
+        else if (code.includes('timeout'))
+          errMsg = 'Storage timeout. Cek apakah Storage sudah aktif di Firebase Console.';
+
+        console.warn('Storage error:', code);
+        showToast('⚠️ ' + errMsg + ' Project tetap tersimpan.', 'warning');
+        uploadedFiles.push({ name: file.name, url: '', storagePath: '', size: file.size });
+      }
+    } else {
       uploadedFiles.push({ name: file.name, url: '', storagePath: '', size: file.size });
     }
   }
 
-  progressStat.textContent = 'Saving to cloud...';
+  progressStat.textContent = 'Menyimpan ke Firestore...';
   progressPct.textContent  = '100%';
   progressBar.style.width  = '100%';
 
@@ -847,7 +869,10 @@ async function doUpload() {
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
 
-    showToast(`✅ "${name}" berhasil diupload!`, 'success');
+    const msg = storageWorking
+      ? `✅ "${name}" berhasil diupload ke cloud!`
+      : `✅ "${name}" tersimpan! (Aktifkan Firebase Storage untuk upload file)`;
+    showToast(msg, 'success');
 
     // Reset form
     document.getElementById('project-name').value = '';
@@ -862,8 +887,9 @@ async function doUpload() {
     setTimeout(() => navigateTo('dashboard'), 1000);
 
   } catch (e) {
-    showToast('Gagal menyimpan ke cloud: ' + e.message, 'error');
-    console.error(e);
+    showToast('Gagal menyimpan ke Firestore: ' + e.message, 'error');
+    console.error('Firestore error:', e);
+    progressStat.textContent = 'Gagal! ' + e.message;
   }
 
   uploadBtn.disabled = false;
