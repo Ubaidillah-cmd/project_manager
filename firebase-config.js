@@ -5,12 +5,12 @@
 // ============================================================
 
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSy...",
+  authDomain: "cloudvault-36285.firebaseapp.com",
+  projectId: "cloudvault-36285",
+  storageBucket: "cloudvault-36285.firebasestorage.app",
+  messagingSenderId: "1032732613397",
+  appId: "1:1032732613397:web:..."
 };
 
 // Initialize Firebase
