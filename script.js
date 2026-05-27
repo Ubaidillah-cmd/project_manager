@@ -6,15 +6,15 @@
 "use strict";
 
 // ── Firebase Configuration ──
-// GANTI dengan konfigurasi Firebase project kamu sendiri!
-// Daftar di: https://console.firebase.google.com
+// Project: CloudVault (cloudvault-36285)
 const firebaseConfig = {
-  apiKey: "AIzaSyCPfBAPv1k68qwwfGLehl3KC5AjpHIs0",
+  apiKey: "AIzaSyCvPfBAPyiW68ggwufGlehl3KC5AipHIs0",
   authDomain: "cloudvault-36285.firebaseapp.com",
   projectId: "cloudvault-36285",
   storageBucket: "cloudvault-36285.firebasestorage.app",
   messagingSenderId: "1032732613397",
-  appId: "1:1032732613397:web:6a9397eed1b077aa2fe71c"
+  appId: "1:1032732613397:web:6a9397eed1b077aa2fe71c",
+  measurementId: "G-323LYRKTR7"
 };
 
 // ── Initialize Firebase ──
