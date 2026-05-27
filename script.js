@@ -9,12 +9,12 @@
 // GANTI dengan konfigurasi Firebase project kamu sendiri!
 // Daftar di: https://console.firebase.google.com
 const firebaseConfig = {
-  apiKey: "YOUR_API_KEY",
-  authDomain: "YOUR_PROJECT_ID.firebaseapp.com",
-  projectId: "YOUR_PROJECT_ID",
-  storageBucket: "YOUR_PROJECT_ID.appspot.com",
-  messagingSenderId: "YOUR_MESSAGING_SENDER_ID",
-  appId: "YOUR_APP_ID"
+  apiKey: "AIzaSyCPfBAPv1k68qwwfGLehl3KC5AjpHIs0",
+  authDomain: "cloudvault-36285.firebaseapp.com",
+  projectId: "cloudvault-36285",
+  storageBucket: "cloudvault-36285.firebasestorage.app",
+  messagingSenderId: "1032732613397",
+  appId: "1:1032732613397:web:6a9397eed1b077aa2fe71c"
 };
 
 // ── Initialize Firebase ──
