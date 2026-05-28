@@ -17,6 +17,12 @@ const firebaseConfig = {
   measurementId: "G-323LYRKTR7"
 };
 
+// ── Cloudinary Configuration ──
+// Storage gratis 25 GB — pengganti Firebase Storage
+const CLOUDINARY_CLOUD = 'dzjvcvm3i';
+const CLOUDINARY_PRESET = 'cloudvault';
+const CLOUDINARY_URL = `https://api.cloudinary.com/v1_1/${CLOUDINARY_CLOUD}/auto/upload`;
+
 // ── Initialize Firebase ──
 firebase.initializeApp(firebaseConfig);
 const auth    = firebase.auth();
@@ -765,6 +771,51 @@ function renderStagedFiles() {
   });
 }
 
+// =====================================================
+//  UPLOAD KE CLOUDINARY (Gratis 25 GB, tanpa kartu kredit)
+//  Cloud: dzjvcvm3i | Preset: cloudvault (Unsigned)
+// =====================================================
+async function uploadToCloudinary(file, onProgress) {
+  const formData = new FormData();
+  formData.append('file', file);
+  formData.append('upload_preset', CLOUDINARY_PRESET);
+  formData.append('folder', `cloudvault/${currentUser.uid}`);
+
+  return new Promise((resolve, reject) => {
+    const xhr = new XMLHttpRequest();
+
+    // Track upload progress
+    xhr.upload.addEventListener('progress', e => {
+      if (e.lengthComputable) {
+        const pct = Math.round((e.loaded / e.total) * 100);
+        onProgress(pct);
+      }
+    });
+
+    xhr.addEventListener('load', () => {
+      if (xhr.status === 200) {
+        const data = JSON.parse(xhr.responseText);
+        resolve({
+          url: data.secure_url,
+          publicId: data.public_id,
+          format: data.format,
+          size: data.bytes,
+        });
+      } else {
+        const err = JSON.parse(xhr.responseText);
+        reject(new Error(err?.error?.message || 'Upload Cloudinary gagal'));
+      }
+    });
+
+    xhr.addEventListener('error', () => reject(new Error('Network error saat upload')));
+    xhr.addEventListener('timeout', () => reject(new Error('Timeout upload ke Cloudinary')));
+
+    xhr.timeout = 120000; // 2 menit timeout
+    xhr.open('POST', CLOUDINARY_URL);
+    xhr.send(formData);
+  });
+}
+
 async function doUpload() {
   const name     = document.getElementById('project-name').value.trim();
   const category = document.getElementById('project-category').value;
@@ -783,74 +834,50 @@ async function doUpload() {
   progressWrap.classList.remove('hidden');
   uploadBtn.disabled = true;
 
-  let totalSize    = 0;
+  let totalSize = 0;
   const uploadedFiles = [];
-  let storageWorking  = true;
 
   for (let i = 0; i < stagedFiles.length; i++) {
     const file = stagedFiles[i];
     totalSize += file.size;
 
     progressFn.textContent   = file.name;
-    progressStat.textContent = `Uploading file ${i + 1} of ${stagedFiles.length}...`;
-    progressBar.style.width  = '5%';
-    progressPct.textContent  = '5%';
+    progressStat.textContent = `Uploading ${i + 1}/${stagedFiles.length}: ${file.name}`;
+    progressBar.style.width  = '3%';
+    progressPct.textContent  = '0%';
 
-    if (storageWorking) {
-      try {
-        const storagePath = `projects/${currentUser.uid}/${Date.now()}_${file.name}`;
-        const storageRef  = storage.ref(storagePath);
-        const uploadTask  = storageRef.put(file);
+    try {
+      // Upload ke Cloudinary
+      const result = await uploadToCloudinary(file, pct => {
+        progressBar.style.width = `${Math.max(pct, 3)}%`;
+        progressPct.textContent = `${pct}%`;
+      });
 
-        await new Promise((resolve, reject) => {
-          // Timeout 30 detik — kalau Storage belum aktif, langsung fallback
-          const timeout = setTimeout(() => {
-            uploadTask.cancel();
-            reject(new Error('storage/timeout'));
-          }, 30000);
+      uploadedFiles.push({
+        name: file.name,
+        url: result.url,
+        publicId: result.publicId,
+        size: result.size || file.size,
+      });
 
-          uploadTask.on('state_changed',
-            snap => {
-              const pct = Math.round((snap.bytesTransferred / snap.totalBytes) * 100);
-              progressBar.style.width = `${Math.max(pct, 5)}%`;
-              progressPct.textContent = `${pct}%`;
-            },
-            err => { clearTimeout(timeout); reject(err); },
-            async () => {
-              clearTimeout(timeout);
-              try {
-                const downloadURL = await uploadTask.snapshot.ref.getDownloadURL();
-                uploadedFiles.push({ name: file.name, url: downloadURL, storagePath, size: file.size });
-                resolve();
-              } catch(urlErr) { reject(urlErr); }
-            }
-          );
-        });
+      progressStat.textContent = `✅ ${file.name} berhasil diupload!`;
 
-      } catch (e) {
-        storageWorking = false;
-        const code = e.code || e.message || '';
-        let errMsg = 'Firebase Storage belum diaktifkan!';
-        if (code.includes('unauthorized') || code.includes('permission'))
-          errMsg = 'Storage Rules belum diset. Aktifkan test mode!';
-        else if (code.includes('timeout'))
-          errMsg = 'Storage timeout. Cek apakah Storage sudah aktif di Firebase Console.';
-
-        console.warn('Storage error:', code);
-        showToast('⚠️ ' + errMsg + ' Project tetap tersimpan.', 'warning');
-        uploadedFiles.push({ name: file.name, url: '', storagePath: '', size: file.size });
-      }
-    } else {
-      uploadedFiles.push({ name: file.name, url: '', storagePath: '', size: file.size });
+    } catch (e) {
+      console.error('Cloudinary error:', e);
+      showToast(`⚠️ Gagal upload ${file.name}: ${e.message}`, 'warning');
+      // Tetap simpan metadata walau upload gagal
+      uploadedFiles.push({ name: file.name, url: '', publicId: '', size: file.size });
     }
   }
 
-  progressStat.textContent = 'Menyimpan ke Firestore...';
+  progressStat.textContent = 'Menyimpan ke database...';
   progressPct.textContent  = '100%';
   progressBar.style.width  = '100%';
 
-  // Simpan metadata ke Firestore
+  // Simpan semua metadata ke Firestore
   try {
+    const hasFiles = uploadedFiles.some(f => f.url);
+
     await db.collection('projects').add({
       name,
       category,
@@ -859,8 +886,9 @@ async function doUpload() {
       fileCount: stagedFiles.length,
       files: uploadedFiles,
       fileType: stagedFiles[0]?.name?.split('.').pop()?.toLowerCase() || 'file',
-      storagePath: uploadedFiles[0]?.storagePath || '',
+      storagePath: uploadedFiles[0]?.publicId || '',
       downloadURL: uploadedFiles[0]?.url || '',
+      storageProvider: 'cloudinary',
       ownerId: currentUser.uid,
       ownerName: currentUser.displayName || 'Unknown',
       ownerEmail: currentUser.email || '',
@@ -869,27 +897,26 @@ async function doUpload() {
       createdAt: firebase.firestore.FieldValue.serverTimestamp(),
     });
 
-    const msg = storageWorking
-      ? `✅ "${name}" berhasil diupload ke cloud!`
-      : `✅ "${name}" tersimpan! (Aktifkan Firebase Storage untuk upload file)`;
-    showToast(msg, 'success');
+    showToast(`✅ "${name}" berhasil diupload ke Cloudinary! 🎉`, 'success');
 
     // Reset form
     document.getElementById('project-name').value = '';
     document.getElementById('project-desc').value = '';
     stagedFiles = [];
     renderStagedFiles();
-    progressWrap.classList.add('hidden');
-    progressBar.style.width = '0%';
+    setTimeout(() => {
+      progressWrap.classList.add('hidden');
+      progressBar.style.width = '0%';
+    }, 1500);
     uploadBtn.disabled = true;
 
     // Kembali ke dashboard
-    setTimeout(() => navigateTo('dashboard'), 1000);
+    setTimeout(() => navigateTo('dashboard'), 1800);
 
   } catch (e) {
-    showToast('Gagal menyimpan ke Firestore: ' + e.message, 'error');
+    showToast('Gagal menyimpan ke database: ' + e.message, 'error');
     console.error('Firestore error:', e);
-    progressStat.textContent = 'Gagal! ' + e.message;
+    progressStat.textContent = '❌ Gagal! ' + e.message;
   }
 
   uploadBtn.disabled = false;
