@@ -289,6 +289,8 @@ function setupTopbar() {
 
 // =====================================================
 //  FIRESTORE — Realtime listener untuk semua project
+//  Pakai query sederhana dulu (tanpa orderBy)
+//  agar tidak perlu composite index di Firestore
 // =====================================================
 function listenProjects() {
   if (!currentUser) return;
@@ -296,35 +298,35 @@ function listenProjects() {
   // Hentikan listener lama jika ada
   if (unsubscribe) unsubscribe();
 
-  // Subscribe ke collection projects milik user ini
+  // Query TANPA orderBy — hindari kebutuhan composite index
+  // Sorting dilakukan di client-side (JavaScript)
   unsubscribe = db.collection('projects')
     .where('ownerId', '==', currentUser.uid)
-    .orderBy('createdAt', 'desc')
     .onSnapshot(snapshot => {
+      // Ambil semua data
       allProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+      // Sort by createdAt descending di client-side
+      allProjects.sort((a, b) => {
+        const ta = a.createdAt?.toMillis?.() || a.createdAt?.seconds * 1000 || 0;
+        const tb = b.createdAt?.toMillis?.() || b.createdAt?.seconds * 1000 || 0;
+        return tb - ta;
+      });
 
       // Update UI setelah data berubah
       updateNavBadges();
       updateStorageBar();
       refreshCurrentPage();
+
     }, err => {
-      console.error('Firestore error:', err);
-      // Jika belum ada index, tampilkan tanpa orderBy
-      listenProjectsSimple();
+      console.error('Firestore listener error:', err);
+      showToast('Gagal memuat data: ' + err.message, 'error');
     });
 }
 
-// Fallback tanpa orderBy (jika index belum dibuat)
+// Alias — tidak dipakai lagi tapi tetap ada untuk kompatibilitas
 function listenProjectsSimple() {
-  unsubscribe = db.collection('projects')
-    .where('ownerId', '==', currentUser.uid)
-    .onSnapshot(snapshot => {
-      allProjects = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
-      allProjects.sort((a,b) => (b.createdAt?.toMillis?.() || 0) - (a.createdAt?.toMillis?.() || 0));
-      updateNavBadges();
-      updateStorageBar();
-      refreshCurrentPage();
-    });
+  listenProjects();
 }
 
 function refreshCurrentPage() {
